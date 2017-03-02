@@ -1,0 +1,285 @@
+# This file is part of libertine linux's package dpdk_sys. It is subject to the licence terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine/master/COPYRIGHT. No part of libertine linux's package dpdk_sys, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package dpdk_sys. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine/master/COPYRIGHT.
+
+
+variant=upstream
+
+depends build_ccache
+build_needs ccache
+
+depends build_gnumake
+build_needs make
+
+depends build_musl_cross_make_build
+build_needs "$libertine_build"-"$libertine_cCompilerName" "$libertine_build"-ar "$libertine_build"-ranlib "$libertine_build"-ld "$libertine_build"-objcopy
+
+depends build_musl_cross_make_host
+build_needs "$libertine_host"-"$libertine_cCompilerName" "$libertine_host"-ar "$libertine_host"-ranlib "$libertine_host"-ld "$libertine_host"-objcopy
+
+depends build_busybox
+build_needs readlink basename dirname cmp tail true touch echo tar
+
+build_needs ln sed mv mkdir rm
+libertine_compile_dpdk()
+{
+	# This is a DPDK variable we don't want
+	#unset RTE_KERNELDIR
+	#RTE_KERNELDIR=/lib/modules/"$(uname -r)"/build
+	
+	# Uses 'cc' and 'gcc'
+	ln -s "$libertine_cCompilerName" "$(libertine_public_buildNeedsPath)"/cc
+	ln -s "$libertine_build"-"$libertine_cCompilerName" "$(libertine_public_buildNeedsPath)"/"$libertine_cCompilerName"
+	
+	pushd "$(libertine_public_sourcePath)"
+	
+		local compile_dpdk_configurationName='libertine-linux'
+		_libertine_compile_dpdk_createConfigurationFile
+		
+		_libertine_compile_dpdk_patchDpdkSourcesToWorkWithMuslAndBusybox
+		
+		# $(libertine_public_hostCCompilerFlags)
+		
+		libertine_public_make \
+			install \
+			T="$compile_dpdk_configurationName" \
+			V=1 \
+			O="$(libertine_public_outputMiscPath)" \
+			DESTDIR="$(libertine_public_outputHostSysrootPath)" \
+			prefix='/usr' \
+			CROSS="$libertine_host"- \
+			EXTRA_CFLAGS="-Wno-pointer-to-int-cast -D_GNU_SOURCE -D_BSD_SOURCE" \
+			1>&2
+		
+	popd
+	
+	# rte_memcpy.h fixes so that cargo-bindgen will work
+	sed -i -e 's;#include <stdio.h>;#include <stdio.h>\n#include <tmmintrin.h>;g' "$(libertine_public_outputHostSysrootPath)"/usr/include/dpdk/rte_memcpy.h
+	
+	# Fixes to buildtools
+	set +f
+		set -- "$(libertine_public_outputHostSysrootPath)"/usr/share/dpdk/buildtools/*.sh
+	set -f
+	local shellScript
+	for shellScript in "$@"
+	do
+		sed -i -e 's;/usr/bin/env sh;'"$(libertine_public_buildNeedsPath)"/sh';g' "$shellScript"
+	done
+	
+	# Fix up libdpdk.a so that it isn't an implicit linker script GROUP
+	pushd "$(libertine_public_outputHostSysrootPath)"/usr/lib
+
+		mv libdpdk.a libdpdk.a.orig
+
+		local fileName
+		sed -e 's;^GROUP ( ;;g' -e 's; );;g' -e 's; ;\n;g' libdpdk.a.orig | \
+		{
+			set --
+
+			while IFS='' read -r fileName
+			do
+				local withoutLib="${fileName#lib*}"
+				local folderName="${withoutLib%*.a}"
+				mkdir -m 0700 "$folderName"
+				pushd "$folderName"
+					"$libertine_host"-ar -x ../"$fileName"
+				popd
+
+				set +f
+					"$libertine_host"-ar rc libdpdk.a "$folderName"/*.o
+				set -f
+
+				set -- "$@" "$folderName"
+			done
+
+			rm -rf "$@"
+		}
+
+		"$libertine_host"-ranlib libdpdk.a
+
+	popd
+}
+
+_libertine_compile_dpdk_findParentConfigurationName()
+{
+	if core_variable_isUnset libertine_dpdk_parentConfigurationName; then	
+		local app
+		case "$libertine_hostOperatingSystem" in
+		
+			linux)
+				app='linuxapp'
+			;;
+		
+			freebsd)
+				app='bsdapp'
+			;;
+		
+			*)
+				core_exitError 1 "The operating system '$libertine_hostOperatingSystem' is not known"
+			;;
+		
+		esac
+	
+		local arch
+		local configMachineName
+		case "$libertine_hostLinuxSpecific" in
+		
+			x86_64)
+				case "$libertine_cCompilerName" in
+				
+					gcc|clang|icc)
+						:
+					;;
+				
+					*)	
+						core_exitError 1 "The architecture '$libertine_hostLinuxSpecific' is not supported for compilers other than gcc, clang and icc"
+					;;
+				
+				esac
+			
+				arch='x86_64'
+				configMachineName='native'
+			;;
+		
+			arm)
+				if [ "$libertine_hostOperatingSystem" != 'linux' ]; then
+					core_exitError 1 "The architecture '$libertine_hostLinuxSpecific' is not supported for operating systems other than Linux"
+				fi
+			
+				if [ "$libertine_cCompilerName" != 'gcc' ]; then
+					core_exitError 1 "The architecture '$libertine_hostLinuxSpecific' is not supported for compilers other than gcc"
+				fi
+			
+				arch='arm'
+				configMachineName='armv7a'
+			;;
+		
+			aarch)
+				if [ "$libertine_hostOperatingSystem" != 'linux' ]; then
+					core_exitError 1 "The architecture '$libertine_hostLinuxSpecific' is not supported for operating systems other than Linux"
+				fi
+			
+				if [ "$libertine_cCompilerName" != 'gcc' ]; then
+					core_exitError 1 "The architecture '$libertine_hostLinuxSpecific' is not supported for compilers other than gcc"
+				fi
+
+				arch='arm64'
+				configMachineName='armv8a'
+			;;
+		
+			*)
+				core_exitError 1 "The architecture '$libertine_hostLinuxSpecific' is not supported (although Power PC 64, i686, x86_32 and tile could be)"
+			;;
+		
+		esac
+	
+		libertine_dpdk_parentConfigurationName="defconfig_${arch}-${configMachineName}-${app}-${libertine_cCompilerName}"  # Look in upstream/lib/dpdk/config for names
+	fi
+	
+	if [ ! -s "$(libertine_public_sourcePath)"/config/"$libertine_dpdk_parentConfigurationName" ]; then
+		core_exitError 1 "There is no parentConfigurationName '$libertine_dpdk_parentConfigurationName' configuration file at 'config/$libertine_dpdk_parentConfigurationName'"
+	fi
+}
+
+
+_libertine_compile_dpdk_findRteMachineName()
+{
+	if core_variable_isUnset libertine_dpdk_rteMachineName; then		
+		case "$libertine_hostLinuxSpecific" in
+		
+			x86_64)
+				libertine_dpdk_rteMachineName='default'
+			
+				# default => core2
+				# atm => atom
+				# nhm => Nehalm (core i7)
+				# wsm => Westmere
+				# snb => Sandybridge (core i7 AVX)
+				# ivb => IvyBridge
+				# hsw => haswell
+			;;
+		
+			arm)
+				libertine_dpdk_rteMachineName='armv7a'
+			;;
+		
+			aarch)
+				libertine_dpdk_rteMachineName='armv8a'
+			
+				# armv8a
+				# xgene1
+				# dpaa2
+				# thunderx
+			;;
+		
+			*)
+				core_exitError 1 "The architecture '$libertine_hostLinuxSpecific' is not supported (although Power PC 64, i686, x86_32 and tile could be)"
+			;;
+		
+		esac
+	fi
+	
+	if [ ! -s "$(libertine_public_sourcePath)"/mk/machine/"$libertine_dpdk_rteMachineName"/rte.vars.mk ]; then
+		compile_dpdk_error "There is no libertine_dpdk_rteMachineName '$libertine_dpdk_rteMachineName' configuration file at 'mk/machine/$libertine_dpdk_rteMachineName/rte.vars.mk'"
+	fi
+}
+
+build_needs cat
+_libertine_compile_dpdk_createConfigurationFile()
+{
+	_libertine_compile_dpdk_findParentConfigurationName
+	
+	_libertine_compile_dpdk_findRteMachineName
+		
+	cat >config/defconfig_"$compile_dpdk_configurationName" <<-EOF
+		#include "${libertine_dpdk_parentConfigurationName}"
+		CONFIG_RTE_MACHINE="${libertine_dpdk_rteMachineName}"
+				
+		# Do not build kernel modules
+		CONFIG_RTE_EAL_IGB_UIO=n
+		CONFIG_RTE_KNI_KMOD=n
+		CONFIG_RTE_LIBRTE_XEN_DOM0=n
+		
+		# Sensible configuration overrides
+		CONFIG_RTE_LIBEAL_USE_HPET=y
+		CONFIG_RTE_LIBRTE_I40E_16BYTE_RX_DESC=y
+		CONFIG_RTE_LIBRTE_I40E_ITR_INTERVAL=16
+		CONFIG_RTE_LIBRTE_IP_FRAG=y
+		CONFIG_RTE_MAX_LCORE=256
+		
+		# Disable test apps
+		CONFIG_RTE_APP_TEST=n
+		CONFIG_RTE_LIBRTE_ACL=n
+		CONFIG_RTE_LIBRTE_PIPELINE=n
+		CONFIG_RTE_TEST_PMD=n
+		CONFIG_RTE_APP_CRYPTO_PERF=n
+		CONFIG_RTE_LIBRTE_CMDLINE=n
+		CONFIG_RTE_LIBRTE_PDUMP=n
+		
+		# Enable functionality
+		CONFIG_RTE_LIBRTE_PMD_BOND=y
+		CONFIG_RTE_LIBRTE_CMDLINE=y
+	EOF
+}
+
+build_needs sed
+_libertine_compile_dpdk_patchDpdkSourcesToWorkWithMuslAndBusybox()
+{
+	# Assumes glibc
+	sed -i -e 's;#include <rte_per_lcore.h>;#include <sched.h>\n#include <rte_per_lcore.h>;g' lib/librte_eal/common/include/rte_lcore.h
+	sed -i -e 's;#include <string.h>;#include <string.h>\n#include <fcntl.h>;g' lib/librte_eal/linuxapp/eal/eal_hugepage_info.c
+	sed -i -e 's;#include <errno.h>;#include <errno.h>\n#include <fcntl.h>;g' lib/librte_eal/linuxapp/eal/eal_memory.c
+	sed -i -e 's;#include <string.h>;#include <string.h>\n#include <sys/sysmacros.h>\n;g' lib/librte_eal/linuxapp/eal/eal_pci_uio.c
+	sed -i -e 's;#define PAGE_SIZE;#undef PAGE_SIZE\n#define PAGE_SIZE;g' lib/librte_eal/linuxapp/eal/eal_pci_vfio.c
+	sed -i -e 's;#include <string.h>;#include <string.h>\n#include <fcntl.h>;g' app/test/test_eal_flags.c
+	
+	# WTF?
+	sed -i -e 's;uint hash_key_len;uint8_t hash_key_len;g' app/test-pmd/testpmd.c app/test-pmd/testpmd.h app/test-pmd/config.c
+	sed -i -e 's;u_int32_t;uint32_t;g' drivers/net/enic/base/vnic_devcmd.h
+	
+	# These files assume glibc
+	libertine_public_copy "$(libertine_public_packagePath)"/overrides/. "$(libertine_public_sourcePath)"/
+
+	# Assumes GNU tar
+	sed -i -e '/--keep-newer-files/d' mk/rte.sdkinstall.mk
+	sed -i -e 's;--strip-components=1 \\;--strip-components=1;g' mk/rte.sdkinstall.mk
+}

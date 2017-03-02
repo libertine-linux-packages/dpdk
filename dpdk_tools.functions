@@ -1,0 +1,43 @@
+# This file is part of libertine linux's package dpdk_sys. It is subject to the licence terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine/master/COPYRIGHT. No part of libertine linux's package dpdk_sys, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package dpdk_sys. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/libertine/master/COPYRIGHT.
+
+
+variant=empty
+
+depends build_busybox
+
+depends dpdk
+
+depends python_2_7
+
+# env
+depends busybox
+
+depends build_musl_cross_make_host
+build_needs "$libertine_host"-strip
+
+depends build_paxctl
+build_needs paxctl
+
+build_needs mkdir cp sed chmod
+libertine_compile_dpdk_tools()
+{
+	local dpdkUsrFolderPath="$(libertine_public_outputHostSysrootPath dpdk)"/usr
+	
+	local outputFolderPath="$(libertine_public_outputInitramfsPath)"/usr/sbin
+	
+	mkdir -m 0755 -p "$outputFolderPath"
+	
+	cp "$dpdkUsrFolderPath"/bin/dpdk-procinfo "$outputFolderPath"
+	libertine_public_stripAndSecureBinary "$outputFolderPath"/dpdk-procinfo
+	chmod 0700 "$outputFolderPath"/dpdk-procinfo
+	
+	local dpdkUserToolsFolderPath="$dpdkUsrFolderPath"/share/dpdk/usertools
+	
+	local pythonBinaryName
+	for pythonBinaryName in cpu_layout dpdk-devbind dpdk-pmdinfo
+	do
+		sed -e 's;#!/usr/bin/env python;#!/usr/bin/env python2.7;g' "$dpdkUserToolsFolderPath"/"$pythonBinaryName".py >"$outputFolderPath"/"$pythonBinaryName"
+		chmod 0700 "$outputFolderPath"/"$pythonBinaryName"
+	done
+}

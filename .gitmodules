@@ -1,0 +1,4 @@
+[submodule "upstream"]
+	path = upstream
+	url = http://dpdk.org/git/dpdk
+	branch = master
