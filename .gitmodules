@@ -2,3 +2,6 @@
 	path = upstream
 	url = http://dpdk.org/git/dpdk
 	branch = master
+[submodule "tldk"]
+	path = tldk
+	url = https://gerrit.fd.io/r/tldk
