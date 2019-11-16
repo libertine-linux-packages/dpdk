@@ -1,16 +1,8 @@
-Updating origin
-https://github.com/libertine-linux-mirrors/dpdk
-Branch 'master' set up to track remote branch 'master' from 'origin'.
 [submodule "upstream"]
 	path = upstream
 	url = https://github.com/libertine-linux-mirrors/dpdk.git
 	branch = master
-	libertine-linux-upstream = http://dpdk.org/git/dpdk
-Updating origin
-https://github.com/libertine-linux-mirrors/tldk
-Branch 'master' set up to track remote branch 'master' from 'origin'.
 [submodule "tldk"]
 	path = tldk
 	url = https://github.com/libertine-linux-mirrors/tldk.git
 	branch = master
-	libertine-linux-upstream = https://gerrit.fd.io/r/tldk
