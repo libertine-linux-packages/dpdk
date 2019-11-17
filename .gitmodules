@@ -5,7 +5,7 @@
 	update = checkout
 	ignore = none
 	fetchRecurseSubmodules = true
-	shallow = true
+	shallow = false
 [submodule "tldk"]
 	path = tldk
 	url = https://github.com/libertine-linux-mirrors/tldk.git
@@ -13,4 +13,4 @@
 	update = checkout
 	ignore = none
 	fetchRecurseSubmodules = true
-	shallow = true
+	shallow = false
