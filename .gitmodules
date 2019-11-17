@@ -6,3 +6,7 @@
 	path = tldk
 	url = https://github.com/libertine-linux-mirrors/tldk.git
 	branch = master
+	update = checkout
+	ignore = none
+	fetchRecurseSubmodules = true
+	shallow = true
