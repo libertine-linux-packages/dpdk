@@ -2,6 +2,10 @@
 	path = upstream
 	url = https://github.com/libertine-linux-mirrors/dpdk.git
 	branch = master
+	update = checkout
+	ignore = none
+	fetchRecurseSubmodules = true
+	shallow = true
 [submodule "tldk"]
 	path = tldk
 	url = https://github.com/libertine-linux-mirrors/tldk.git
